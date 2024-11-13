@@ -1,17 +1,11 @@
 import concurrent.futures as cf
-import glob
+
 import io
 import os
-import time
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import List, Literal
 
-import gradio as gr
-import sentry_sdk
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from loguru import logger
+from flask_cors import CORS, cross_origin
+from flask import Flask, request, jsonify
 from openai import OpenAI
 from promptic import llm
 from pydantic import BaseModel, ValidationError
@@ -19,11 +13,13 @@ from pypdf import PdfReader
 from tenacity import retry, retry_if_exception_type
 
 
-sentry_sdk.init(os.getenv("SENTRY_DSN"))
 
-app = FastAPI()
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app = Flask(__name__)
+cors = CORS(app)
+@app.route('/')
+@cross_origin()
+def home():
+    return 'Uhhhhh, this is awkward, you shouldn\'t be here...Please go to https://chatvpc.vercel.app/ instead (Don\'t look at the tab icon)'
 
 
 class DialogueItem(BaseModel):
@@ -60,19 +56,21 @@ def get_mp3(text: str, voice: str, api_key: str = None) -> bytes:
             return file.getvalue()
 
 
+@app.post('/gen-pod/')
 def generate_audio(
-    file: str,
     openai_api_key: str = None,
     gemini_api_key: str = None,
 ) -> bytes:
+    file = request.files.get('file')
+    cwd = os.getcwd()
+    file_path = os.path.join(cwd, file.filename)
+    file.save(file_path)
 
-    if not os.getenv("OPENAI_API_KEY", openai_api_key):
-        raise gr.Error("OpenAI API key is required")
-    
-    if not os.getenv("GEMINI_API_KEY", gemini_api_key):
-        raise gr.Error("Gemini API key is required")
+    os.getenv("OPENAI_API_KEY", openai_api_key)
 
-    with Path(file).open("rb") as f:
+    os.getenv("GEMINI_API_KEY", gemini_api_key)
+
+    with open(file_path, "rb") as f:
         reader = PdfReader(f)
         text = "\n\n".join([page.extract_text() for page in reader.pages])
 
@@ -114,6 +112,7 @@ def generate_audio(
     llm_output = generate_dialogue(text)
 
     audio = b""
+    global transcript
     transcript = ""
 
     characters = 0
@@ -131,64 +130,14 @@ def generate_audio(
             audio += audio_chunk
             transcript += transcript_line + "\n\n"
 
-    logger.info(f"Generated {characters} characters of audio")
+    os.remove(file_path)
 
-    temporary_directory = "./gradio_cached_examples/tmp/"
-    os.makedirs(temporary_directory, exist_ok=True)
+    return audio
 
-    # we use a temporary file because Gradio's audio component doesn't work with raw bytes in Safari
-    temporary_file = NamedTemporaryFile(
-        dir=temporary_directory,
-        delete=False,
-        suffix=".mp3",
-    )
-    temporary_file.write(audio)
-    temporary_file.close()
+@app.get("/get-trans/")
+def get_trans():
+    return transcript
 
-    # Delete any files in the temp directory that end with .mp3 and are over a day old
-    for file in glob.glob(f"{temporary_directory}*.mp3"):
-        if os.path.isfile(file) and time.time() - os.path.getmtime(file) > 24 * 60 * 60:
-            os.remove(file)
-
-    return temporary_file.name, transcript
-
-
-demo = gr.Interface(
-    title="PDF to Podcast",
-    description=Path("description.md").read_text(),
-    fn=generate_audio,
-    examples=[[str(p)] for p in Path("examples").glob("*.pdf")],
-    inputs=[
-        gr.File(
-            label="PDF",
-        ),
-        gr.Textbox(
-            label="OpenAI API Key",
-            visible=not os.getenv("OPENAI_API_KEY"),
-        ),
-        gr.Textbox(
-            label="Gemini API Key",
-            visible=not os.getenv("GEMINI_API_KEY"),
-        ),
-    ],
-    outputs=[
-        gr.Audio(label="Audio", format="mp3"),
-        gr.Textbox(label="Transcript"),
-    ],
-    allow_flagging=False,
-    clear_btn=None,
-    head=os.getenv("HEAD", "") + Path("head.html").read_text(),
-    cache_examples="lazy",
-    api_name=False,
-)
-
-
-demo = demo.queue(
-    max_size=20,
-    default_concurrency_limit=20,
-)
-
-app = gr.mount_gradio_app(app, demo, path="/")
 
 if __name__ == "__main__":
-    demo.launch(show_api=False)
+    app.run(port=8000)
