@@ -5,7 +5,7 @@ import os
 from typing import List, Literal
 
 from flask_cors import CORS, cross_origin
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from openai import OpenAI
 from promptic import llm
 from pydantic import BaseModel, ValidationError
@@ -16,6 +16,7 @@ from tenacity import retry, retry_if_exception_type
 
 app = Flask(__name__)
 cors = CORS(app)
+
 @app.route('/')
 @cross_origin()
 def home():
