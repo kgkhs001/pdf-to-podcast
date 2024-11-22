@@ -6,3 +6,7 @@ Steps to running this code
 5. Run the program -run `python3 main.py`
 
 Note that all the `python3` can be replaced by `python` depending on your machine. But if one doesn't work try the other.
+
+MAKE SURE YOU ADD YOUR .env VARIABLES.
+GEMINI_API_KEY = ""
+OPENAI_API_KEY = ""
